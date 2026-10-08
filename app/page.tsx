@@ -26,6 +26,8 @@ type Transaction = {
   destinationAccountId?: string;
   goalId?: string;
   sourceLabel?: string;
+  accountNameSnapshot?: string;
+  destinationAccountNameSnapshot?: string;
 };
 
 const categories: Category[] = ["Food", "Clothes", "Coffee", "Travelling", "Other"];
@@ -134,7 +136,19 @@ export default function Home() {
   const recentTransactions = [...transactions].sort((first, second) =>
     `${second.date}${second.id}`.localeCompare(`${first.date}${first.id}`),
   ).slice(0, 6);
-  const accountName = (id: string) => accounts.find((account) => account.id === id)?.name ?? "Account";
+  const accountName = (id: string, snapshot?: string) => accounts.find((account) => account.id === id)?.name ?? snapshot ?? "Account";
+
+  function removeAccount(account: Account) {
+    if (account.type !== "card" || !window.confirm(`Remove ${account.name} from your accounts? Its balance will no longer count toward your total. Past activity will be kept.`)) return;
+    setAccounts((current) => current.filter((item) => item.id !== account.id));
+    setTransactions((current) => current.map((transaction) => ({
+      ...transaction,
+      accountNameSnapshot: transaction.accountId === account.id ? account.name : transaction.accountNameSnapshot,
+      destinationAccountNameSnapshot: transaction.destinationAccountId === account.id
+        ? account.name
+        : transaction.destinationAccountNameSnapshot,
+    })));
+  }
 
   function openModal(nextModal: "transaction" | "account" | "goal" | "save", goalId?: string) {
     setFormError("");
@@ -452,7 +466,11 @@ export default function Home() {
                     <div className="account-card-top">
                       <span className={`account-emblem emblem-${account.type}`}>{account.type === "cash" ? "$" : "▤"}</span>
                       <span className="account-type-label">{account.type === "cash" ? "CASH" : "CREDIT CARD"}</span>
-                      <span className={`account-status account-status-${index % 2}`} />
+                      {account.type === "card" ? (
+                        <button className="account-remove-button" onClick={() => removeAccount(account)} aria-label={`Remove ${account.name}`} title="Remove credit card">×</button>
+                      ) : (
+                        <span className={`account-status account-status-${index % 2}`} />
+                      )}
                     </div>
                     <div className="account-name">{account.name}</div>
                     <div className="account-balance">{money(account.balance)}</div>
@@ -523,9 +541,9 @@ export default function Home() {
                         <div className="activity-detail">
                           <strong>{isWithdrawal ? "Cash withdrawal" : isPayment ? "Credit card payment" : isDeposit ? "Money added" : isSaving ? `Saved: ${goals.find((goal) => goal.id === transaction.goalId)?.name ?? "Savings goal"}` : transaction.category}</strong>
                           <span>{isTransfer
-                            ? `${accountName(transaction.accountId)} to ${accountName(transaction.destinationAccountId ?? "")}`
+                            ? `${accountName(transaction.accountId, transaction.accountNameSnapshot)} to ${accountName(transaction.destinationAccountId ?? "", transaction.destinationAccountNameSnapshot)}`
                             : isSaving && transaction.sourceLabel ? transaction.sourceLabel
-                            : `${accountName(transaction.accountId)} · ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${transaction.date}T12:00:00`))}`}</span>
+                            : `${accountName(transaction.accountId, transaction.accountNameSnapshot)} · ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${transaction.date}T12:00:00`))}`}</span>
                         </div>
                         <div className="activity-amount">
                           <strong className={isTransfer ? "transfer-amount" : isSaving || isDeposit || isCardTopUp ? "saving-amount" : "expense-amount"}>{isSaving || isDeposit || isCardTopUp ? "+" : "−"}{money(transaction.amount)}</strong>

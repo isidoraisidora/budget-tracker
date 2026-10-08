@@ -138,6 +138,9 @@ h1 { margin-bottom: 0; color: #2b3931; font-family: Georgia, 'Times New Roman', 
 .account-type-label { color: #9ba69e; font-size: 8px; letter-spacing: 1.05px; }
 .account-status { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: #86b394; }
 .account-status-1 { background: #88a7c7; }
+.account-remove-button { display: grid; flex: 0 0 22px; width: 22px; height: 22px; place-items: center; margin-left: auto; border: 1px solid #f1dcd5; border-radius: 6px; background: rgba(255, 255, 255, .8); color: #bd7059; font-size: 16px; line-height: 1; opacity: .72; transition: background .18s, opacity .18s, transform .18s; }
+.account-remove-button:hover { transform: scale(1.06); border-color: #e9b8a9; background: #fff2ed; opacity: 1; }
+.account-remove-button:focus-visible { opacity: 1; }
 .account-name { overflow: hidden; margin-top: 15px; color: #536158; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .account-balance { margin-top: 3px; color: #2e3c33; font-size: 21px; font-variant-numeric: tabular-nums; font-weight: 500; letter-spacing: -.45px; }
 .account-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 11px; padding-top: 9px; border-top: 1px solid #f0f3f0; color: #9aa49d; font-size: 9px; }
