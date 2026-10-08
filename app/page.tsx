@@ -18,13 +18,14 @@ type Goal = {
 };
 type Transaction = {
   id: string;
-  type: "expense" | "withdrawal" | "payment" | "saving";
+  type: "expense" | "deposit" | "withdrawal" | "payment" | "saving";
   amount: number;
   date: string;
   category?: Category;
   accountId: string;
   destinationAccountId?: string;
   goalId?: string;
+  sourceLabel?: string;
 };
 
 const categories: Category[] = ["Food", "Clothes", "Coffee", "Travelling", "Other"];
@@ -58,7 +59,8 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [modal, setModal] = useState<"transaction" | "account" | "goal" | "save" | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState("");
-  const [transactionType, setTransactionType] = useState<"expense" | "withdrawal" | "payment">("expense");
+  const [transactionType, setTransactionType] = useState<"expense" | "deposit" | "withdrawal" | "payment">("expense");
+  const [activeSection, setActiveSection] = useState<"overview" | "activity">("overview");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -237,37 +239,51 @@ export default function Home() {
 
     const date = String(form.get("date") ?? today());
     if (modal === "save") {
-      const accountId = String(form.get("accountId") ?? "");
+      const sourceId = String(form.get("sourceId") ?? "");
       const goalId = String(form.get("goalId") ?? "");
       const goal = goals.find((item) => item.id === goalId);
-      const source = cashAccounts.find((account) => account.id === accountId);
-      if (!goal || !source) {
-        setFormError("Choose a savings goal and a cash account.");
+      const source = accounts.find((account) => account.id === sourceId);
+      if (!goal || (sourceId !== "other" && !source)) {
+        setFormError("Choose a savings goal and a source.");
         return;
       }
       if (amount > goal.target - goal.saved) {
         setFormError("That amount is more than this goal has left to save.");
         return;
       }
-      setAccounts((current) => current.map((account) =>
-        account.id === accountId ? { ...account, balance: account.balance - amount } : account,
-      ));
+      if (source) {
+        setAccounts((current) => current.map((account) =>
+          account.id === source.id ? { ...account, balance: account.balance - amount } : account,
+        ));
+      }
       setGoals((current) => current.map((item) => item.id === goalId ? { ...item, saved: item.saved + amount } : item));
       setTransactions((current) => [{
-        id: crypto.randomUUID(), type: "saving", amount, date, accountId, goalId,
+        id: crypto.randomUUID(), type: "saving", amount, date, accountId: source?.id ?? "", goalId,
+        sourceLabel: source ? undefined : "Other source",
       }, ...current]);
       setModal(null);
       return;
     }
 
-    if (transactionType === "withdrawal" || transactionType === "payment") {
+    if (transactionType === "deposit") {
       const accountId = String(form.get("accountId") ?? "");
-      const destinationAccountId = String(form.get("destinationAccountId") ?? "");
-      const validTransfer = transactionType === "withdrawal"
-        ? cardAccounts.some((account) => account.id === accountId) && cashAccounts.some((account) => account.id === destinationAccountId)
-        : cashAccounts.some((account) => account.id === accountId) && cardAccounts.some((account) => account.id === destinationAccountId);
-      if (!validTransfer) {
-        setFormError("Choose a valid cash account and credit card for this transfer.");
+      if (!accounts.some((account) => account.id === accountId)) {
+        setFormError("Choose an account to add money to.");
+        return;
+      }
+      setAccounts((current) => current.map((account) =>
+        account.id === accountId ? { ...account, balance: account.balance + amount } : account,
+      ));
+      setTransactions((current) => [{ id: crypto.randomUUID(), type: "deposit", amount, date, accountId }, ...current]);
+      setModal(null);
+      return;
+    }
+
+    if (transactionType === "withdrawal") {
+      const accountId = String(form.get("accountId") ?? "");
+      const destinationAccountId = cashAccounts[0]?.id ?? "";
+      if (!cardAccounts.some((account) => account.id === accountId) || !destinationAccountId) {
+        setFormError("Choose a credit card and add a cash account to receive this transfer.");
         return;
       }
       setAccounts((current) => current.map((account) => {
@@ -276,8 +292,26 @@ export default function Home() {
         return account;
       }));
       setTransactions((current) => [{
-        id: crypto.randomUUID(), type: transactionType, amount, date, accountId, destinationAccountId,
+        id: crypto.randomUUID(), type: "withdrawal", amount, date, accountId, destinationAccountId,
       }, ...current]);
+      setModal(null);
+      return;
+    }
+
+    if (transactionType === "payment") {
+      const accountId = String(form.get("destinationAccountId") ?? "");
+      if (!cardAccounts.some((account) => account.id === accountId)) {
+        setFormError("Choose a credit card to add money to.");
+        return;
+      }
+      setAccounts((current) => current.map((account) =>
+        account.id === accountId ? { ...account, balance: account.balance + amount } : account,
+      ));
+      setTransactions((current) => [{
+        id: crypto.randomUUID(), type: "payment", amount, date, accountId,
+      }, ...current]);
+      setModal(null);
+      return;
     } else {
       const accountId = String(form.get("accountId") ?? "");
       const category = String(form.get("category") ?? "Other") as Category;
@@ -340,8 +374,8 @@ export default function Home() {
           <span>pocket<span className="brand-period">.</span></span>
         </a>
         <div className="nav-label">WORKSPACE</div>
-        <a className="nav-link nav-link-active" href="#overview"><span className="nav-dot" />Overview</a>
-        <a className="nav-link" href="#activity"><span className="nav-dot" />Transactions</a>
+        <a className={`nav-link ${activeSection === "overview" ? "nav-link-active" : ""}`} href="#overview" onClick={() => setActiveSection("overview")}><span className="nav-dot" />Overview</a>
+        <a className={`nav-link ${activeSection === "activity" ? "nav-link-active" : ""}`} href="#activity" onClick={() => setActiveSection("activity")}><span className="nav-dot" />Transactions</a>
         <div className="sidebar-rule" />
         <div className="sidebar-section-heading">
           <span>YOUR ACCOUNTS</span>
@@ -454,8 +488,8 @@ export default function Home() {
                       <h3>{goal.name}</h3>
                       <div className="goal-progress-track"><span style={{ width: `${progress}%` }} /></div>
                       <div className="goal-amounts"><strong>{money(goal.saved)}</strong><span>of {money(goal.target)}</span></div>
-                      <button className="goal-save-link" onClick={() => openModal("save", goal.id)} disabled={progress >= 100 || cashAccounts.length === 0}>
-                        {progress >= 100 ? "Goal reached!" : cashAccounts.length === 0 ? "Add a cash account to save" : "Add to this goal  →"}
+                      <button className="goal-save-link" onClick={() => openModal("save", goal.id)} disabled={progress >= 100}>
+                        {progress >= 100 ? "Goal reached!" : "Add to this goal  →"}
                       </button>
                     </article>
                   );
@@ -478,21 +512,24 @@ export default function Home() {
                     const isWithdrawal = transaction.type === "withdrawal";
                     const isPayment = transaction.type === "payment";
                     const isSaving = transaction.type === "saving";
-                    const isTransfer = isWithdrawal || isPayment;
+                    const isDeposit = transaction.type === "deposit";
+                    const isCardTopUp = isPayment && !transaction.destinationAccountId;
+                    const isTransfer = isWithdrawal || (isPayment && !isCardTopUp);
                     return (
                       <article className="activity-row" key={transaction.id}>
-                        <span className={`activity-icon ${isTransfer ? "transfer-icon" : isSaving ? "saving-icon" : `category-${transaction.category?.toLowerCase() ?? "other"}`}`}>
-                          {isTransfer ? "↗" : isSaving ? "✳" : transaction.category?.slice(0, 1) ?? "O"}
+                        <span className={`activity-icon ${isTransfer ? "transfer-icon" : isSaving || isDeposit || isCardTopUp ? "saving-icon" : `category-${transaction.category?.toLowerCase() ?? "other"}`}`}>
+                          {isTransfer ? "↗" : isSaving ? "✳" : isDeposit || isCardTopUp ? "+" : transaction.category?.slice(0, 1) ?? "O"}
                         </span>
                         <div className="activity-detail">
-                          <strong>{isWithdrawal ? "Cash withdrawal" : isPayment ? "Credit card payment" : isSaving ? `Saved: ${goals.find((goal) => goal.id === transaction.goalId)?.name ?? "Savings goal"}` : transaction.category}</strong>
+                          <strong>{isWithdrawal ? "Cash withdrawal" : isPayment ? "Credit card payment" : isDeposit ? "Money added" : isSaving ? `Saved: ${goals.find((goal) => goal.id === transaction.goalId)?.name ?? "Savings goal"}` : transaction.category}</strong>
                           <span>{isTransfer
                             ? `${accountName(transaction.accountId)} to ${accountName(transaction.destinationAccountId ?? "")}`
+                            : isSaving && transaction.sourceLabel ? transaction.sourceLabel
                             : `${accountName(transaction.accountId)} · ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${transaction.date}T12:00:00`))}`}</span>
                         </div>
                         <div className="activity-amount">
-                          <strong className={isTransfer ? "transfer-amount" : isSaving ? "saving-amount" : "expense-amount"}>{isSaving ? "+" : "−"}{money(transaction.amount)}</strong>
-                          <span>{isTransfer ? "Transfer" : isSaving ? "Saved" : "Expense"}</span>
+                          <strong className={isTransfer ? "transfer-amount" : isSaving || isDeposit || isCardTopUp ? "saving-amount" : "expense-amount"}>{isSaving || isDeposit || isCardTopUp ? "+" : "−"}{money(transaction.amount)}</strong>
+                          <span>{isTransfer ? "Transfer" : isSaving ? "Saved" : isDeposit || isCardTopUp ? "Added" : "Expense"}</span>
                         </div>
                       </article>
                     );
@@ -536,7 +573,7 @@ export default function Home() {
             <div className="modal-heading">
               <div>
                 <p className="eyebrow">{modal === "account" ? "YOUR MONEY, ORGANIZED" : modal === "goal" || modal === "save" ? "SMALL STEPS, BIG PLANS" : "KEEP YOUR BALANCE CLOSE"}</p>
-                <h2 id="modal-title">{modal === "account" ? "Add an account" : modal === "goal" ? "Make a savings goal" : modal === "save" ? "Add to your savings" : transactionType === "expense" ? "Add a transaction" : transactionType === "payment" ? "Pay a credit card" : "Move card money to cash"}</h2>
+                <h2 id="modal-title">{modal === "account" ? "Add an account" : modal === "goal" ? "Make a savings goal" : modal === "save" ? "Add to your savings" : transactionType === "expense" ? "Add a transaction" : transactionType === "deposit" ? "Add money" : transactionType === "payment" ? "Pay a credit card" : "Move card money to cash"}</h2>
               </div>
               <button className="modal-close" onClick={() => setModal(null)} aria-label="Close dialog">×</button>
             </div>
@@ -544,6 +581,7 @@ export default function Home() {
             {modal === "transaction" && (
               <div className="mode-switch" role="group" aria-label="Transaction type">
                 <button className={transactionType === "expense" ? "mode-active" : ""} onClick={() => { setTransactionType("expense"); setFormError(""); }}>Expense</button>
+                <button className={transactionType === "deposit" ? "mode-active" : ""} onClick={() => { setTransactionType("deposit"); setFormError(""); }}>Add money</button>
                 <button className={transactionType === "withdrawal" ? "mode-active" : ""} onClick={() => { setTransactionType("withdrawal"); setFormError(""); }}>Card to cash</button>
                 <button className={transactionType === "payment" ? "mode-active" : ""} onClick={() => { setTransactionType("payment"); setFormError(""); }}>Pay card</button>
               </div>
@@ -565,7 +603,7 @@ export default function Home() {
                 <>
                   <label className="field-label">Savings goal<select name="goalId" defaultValue={selectedGoalId} required>{goals.map((goal) => <option value={goal.id} key={goal.id} disabled={goal.saved >= goal.target}>{goal.name} · {money(goal.target - goal.saved)} left</option>)}</select></label>
                   <label className="field-label">Amount <span className="input-wrap"><span>$</span><input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" autoFocus required /></span></label>
-                  <label className="field-label">Take it from<select name="accountId" defaultValue={cashAccounts[0]?.id ?? ""} required>{cashAccounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {money(account.balance)}</option>)}</select></label>
+                  <label className="field-label">Add funds from<select name="sourceId" defaultValue={accounts[0]?.id ?? "other"} required>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type === "cash" ? "Cash" : "Credit card"} · {money(account.balance)}</option>)}<option value="other">Other source</option></select></label>
                   <label className="field-label">Date<input name="date" type="date" defaultValue={today()} required /></label>
                 </>
               ) : (
@@ -577,22 +615,23 @@ export default function Home() {
                       <label className="field-label">Category<select name="category" defaultValue="Food">{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
                       <label className="field-label">Paid from<select name="accountId" defaultValue={accounts[0]?.id ?? ""} required>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type === "cash" ? "Cash" : "Credit card"}</option>)}</select></label>
                     </>
+                  ) : transactionType === "deposit" ? (
+                    <label className="field-label">Add money to<select name="accountId" defaultValue={accounts[0]?.id ?? ""} required><option value="">Choose an account</option>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type === "cash" ? "Cash" : "Credit card"}</option>)}</select></label>
+                  ) : transactionType === "withdrawal" ? (
+                    <label className="field-label">Withdraw from card<select key="withdrawal-card-source" name="accountId" defaultValue={cardAccounts[0]?.id ?? ""} required><option value="">Choose a credit card</option>{cardAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
                   ) : (
-                    <>
-                      <label className="field-label">{transactionType === "payment" ? "Pay from cash" : "Withdraw from card"}<select key={`source-${transactionType}`} name="accountId" defaultValue={transactionType === "payment" ? cashAccounts[0]?.id ?? "" : cardAccounts[0]?.id ?? ""} required><option value="">Choose an account</option>{(transactionType === "payment" ? cashAccounts : cardAccounts).map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
-                      <label className="field-label">{transactionType === "payment" ? "Add to credit card" : "Add to cash"}<select key={`destination-${transactionType}`} name="destinationAccountId" defaultValue={transactionType === "payment" ? cardAccounts[0]?.id ?? "" : cashAccounts[0]?.id ?? ""} required><option value="">Choose an account</option>{(transactionType === "payment" ? cardAccounts : cashAccounts).map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
-                    </>
+                    <label className="field-label">Add to credit card<select key={`destination-${transactionType}`} name="destinationAccountId" defaultValue={cardAccounts[0]?.id ?? ""} required><option value="">Choose a credit card</option>{cardAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
                   )}
                 </>
               )}
               {formError && <p className="form-error" role="alert">{formError}</p>}
               <div className="modal-actions">
                 <button type="button" className="cancel-button" onClick={() => setModal(null)}>Cancel</button>
-                <button type="submit" className="primary-button">{modal === "account" ? "Save account" : modal === "goal" ? "Create goal" : modal === "save" ? "Save money" : transactionType === "expense" ? "Save transaction" : transactionType === "payment" ? "Pay card" : "Move to cash"}</button>
+                <button type="submit" className="primary-button">{modal === "account" ? "Save account" : modal === "goal" ? "Create goal" : modal === "save" ? "Save money" : transactionType === "expense" ? "Save transaction" : transactionType === "deposit" ? "Add money" : transactionType === "payment" ? "Pay card" : "Move to cash"}</button>
               </div>
             </form>
-            {modal === "transaction" && transactionType !== "expense" && (
-              <p className="transfer-note">{transactionType === "payment" ? "The amount is taken from cash and added to your card balance." : "The amount is added to cash and deducted from the card balance."}</p>
+            {modal === "transaction" && (transactionType === "withdrawal" || transactionType === "payment") && (
+              <p className="transfer-note">{transactionType === "payment" ? "The amount is added directly to the selected card; cash is unchanged." : cashAccounts[0] ? `The amount is added to ${cashAccounts[0].name} and deducted from the card balance.` : "Add a cash account to receive this transfer."}</p>
             )}
           </section>
         </div>
