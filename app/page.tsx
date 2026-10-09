@@ -601,7 +601,6 @@ export default function Home() {
                 <button className={transactionType === "expense" ? "mode-active" : ""} onClick={() => { setTransactionType("expense"); setFormError(""); }}>Expense</button>
                 <button className={transactionType === "deposit" ? "mode-active" : ""} onClick={() => { setTransactionType("deposit"); setFormError(""); }}>Add money</button>
                 <button className={transactionType === "withdrawal" ? "mode-active" : ""} onClick={() => { setTransactionType("withdrawal"); setFormError(""); }}>Card to cash</button>
-                <button className={transactionType === "payment" ? "mode-active" : ""} onClick={() => { setTransactionType("payment"); setFormError(""); }}>Pay card</button>
               </div>
             )}
 
