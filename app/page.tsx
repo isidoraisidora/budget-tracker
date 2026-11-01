@@ -63,6 +63,7 @@ export default function Home() {
   const [selectedGoalId, setSelectedGoalId] = useState("");
   const [transactionType, setTransactionType] = useState<"expense" | "deposit" | "withdrawal" | "payment">("expense");
   const [activeSection, setActiveSection] = useState<"overview" | "activity">("overview");
+  const [selectedStatisticsMonth, setSelectedStatisticsMonth] = useState("");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -121,6 +122,61 @@ export default function Home() {
     (transaction) => transaction.type === "expense" && transaction.date.startsWith(month),
   );
   const spentThisMonth = monthTransactions.reduce((total, transaction) => total + transaction.amount, 0);
+  const availableExpenseMonths = Array.from(new Set(
+    transactions
+      .filter((transaction) => transaction.type === "expense" && /^\d{4}-\d{2}-\d{2}$/.test(transaction.date))
+      .map((transaction) => transaction.date.slice(0, 7)),
+  ));
+  const statisticsDefaultMonth = month || availableExpenseMonths[0] || "2000-01";
+  if (!availableExpenseMonths.includes(statisticsDefaultMonth)) availableExpenseMonths.push(statisticsDefaultMonth);
+  availableExpenseMonths.sort((first, second) => second.localeCompare(first));
+  const statisticsMonth = selectedStatisticsMonth || statisticsDefaultMonth;
+  const statisticsMonthTransactions = transactions.filter(
+    (transaction) => transaction.type === "expense" && transaction.date.startsWith(statisticsMonth),
+  );
+  const statisticsMonthSpent = statisticsMonthTransactions.reduce((total, transaction) => total + transaction.amount, 0);
+  const statisticsMonthDays = statisticsMonth
+    ? new Date(Number(statisticsMonth.slice(0, 4)), Number(statisticsMonth.slice(5, 7)), 0).getDate()
+    : 0;
+  const dailyCategoryTotals = new Map<string, Map<Category, number>>();
+  statisticsMonthTransactions.forEach((transaction) => {
+    const categoryTotalsForDay = dailyCategoryTotals.get(transaction.date) ?? new Map<Category, number>();
+    const category = transaction.category ?? "Other";
+    categoryTotalsForDay.set(
+      category,
+      (categoryTotalsForDay.get(category) ?? 0) + transaction.amount,
+    );
+    dailyCategoryTotals.set(transaction.date, categoryTotalsForDay);
+  });
+  const dailySpending = Array.from({ length: statisticsMonthDays }, (_, index) => {
+    const date = `${statisticsMonth}-${String(index + 1).padStart(2, "0")}`;
+    const categoryAmounts = categories.map((category) => ({
+      category,
+      amount: dailyCategoryTotals.get(date)?.get(category) ?? 0,
+    }));
+    return {
+      day: index + 1,
+      categoryAmounts,
+      amount: categoryAmounts.reduce((total, category) => total + category.amount, 0),
+    };
+  });
+  const statisticsCategoryTotals = categories
+    .map((category) => ({
+      category,
+      amount: statisticsMonthTransactions
+        .filter((transaction) => (transaction.category ?? "Other") === category)
+        .reduce((total, transaction) => total + transaction.amount, 0),
+    }))
+    .filter(({ amount }) => amount > 0);
+  const maximumDailySpending = Math.max(...dailySpending.map(({ amount }) => amount), 0);
+  const spendingChartScale = maximumDailySpending > 0 ? maximumDailySpending * 1.12 : 1;
+  const spendingChartTicks = [0, 1, 2, 3, 4];
+  const spendingChartAxisMoney = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
   const totalBalance = accounts.reduce((total, account) => total + account.balance, 0) +
     goals.reduce((total, goal) => total + goal.saved, 0);
   const categoryTotals = categories.map((category) => ({
@@ -579,6 +635,106 @@ export default function Home() {
               <button className="category-footer" onClick={() => openModal("transaction")}>Track a purchase <span>→</span></button>
             </section>
           </div>
+          <section className="section-block statistics-section" aria-labelledby="statistics-title">
+            <div className="section-heading statistics-heading">
+              <div>
+                <h2 id="statistics-title">Monthly spending</h2>
+                <p>See how your expenses add up day by day</p>
+              </div>
+              <label className="statistics-month-picker">
+                <span>Month</span>
+                <select
+                  aria-label="Choose a month to view"
+                  value={statisticsMonth}
+                  onChange={(event) => setSelectedStatisticsMonth(event.target.value)}
+                >
+                  {availableExpenseMonths.map((monthKey) => (
+                    <option value={monthKey} key={monthKey}>
+                      {new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" })
+                        .format(new Date(`${monthKey}-01T12:00:00`))}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="statistics-summary">
+              <div><span>Total spent</span><strong>{money(statisticsMonthSpent)}</strong></div>
+              <div><span>Expenses</span><strong>{statisticsMonthTransactions.length}</strong></div>
+            </div>
+            <div className="statistics-chart">
+              <svg
+                viewBox="0 0 760 260"
+                role="img"
+                aria-label={`${new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" })
+                  .format(new Date(`${statisticsMonth}-01T12:00:00`))} daily spending, totaling ${money(statisticsMonthSpent)}`}
+              >
+                {spendingChartTicks.map((tick) => {
+                  const y = 20 + 190 - (tick / 4) * 190;
+                  return (
+                    <g key={tick}>
+                      <line x1="58" x2="746" y1={y} y2={y} className="statistics-grid-line" />
+                      <text x="49" y={y + 4} textAnchor="end" className="statistics-axis-label">
+                        {spendingChartAxisMoney.format((spendingChartScale * tick) / 4)}
+                      </text>
+                    </g>
+                  );
+                })}
+                {dailySpending.map(({ day, amount, categoryAmounts }) => {
+                  const step = 688 / statisticsMonthDays;
+                  const barWidth = Math.min(16, step * 0.58);
+                  const x = 58 + (day - 1) * step + (step - barWidth) / 2;
+                  const showDayLabel = [1, 5, 10, 15, 20, 25, statisticsMonthDays].includes(day);
+                  return (
+                    <g key={day}>
+                      {categoryAmounts.map(({ category, amount: categoryAmount }, categoryIndex) => {
+                        if (!categoryAmount) return null;
+                        const amountBefore = categoryAmounts
+                          .slice(0, categoryIndex)
+                          .reduce((total, item) => total + item.amount, 0);
+                        const segmentHeight = (categoryAmount / spendingChartScale) * 190;
+                        const y = 210 - ((amountBefore + categoryAmount) / spendingChartScale) * 190;
+                        return (
+                          <rect
+                            key={category}
+                            x={x}
+                            y={y}
+                            width={barWidth}
+                            height={segmentHeight}
+                            rx="2"
+                            className={`statistics-bar fill-${category.toLowerCase()}`}
+                          >
+                            <title>{`Day ${day} · ${category}: ${money(categoryAmount)}`}</title>
+                          </rect>
+                        );
+                      })}
+                      {showDayLabel && (
+                        <text x={x + barWidth / 2} y="235" textAnchor="middle" className="statistics-axis-label">
+                          {day}
+                        </text>
+                      )}
+                      {amount > 0 && (
+                        <title>{`Day ${day}: ${money(amount)}`}</title>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+            {statisticsCategoryTotals.length > 0 && (
+              <div className="statistics-legend" aria-label="Spending by category">
+                {statisticsCategoryTotals.map(({ category, amount }) => (
+                  <div className="statistics-legend-item" key={category}>
+                    <span className={`category-dot dot-${category.toLowerCase()}`} />
+                    <span>{category}</span>
+                    <strong>{money(amount)}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+            {statisticsMonthTransactions.length === 0 && (
+              <p className="statistics-empty">No expenses recorded for this month yet.</p>
+            )}
+          </section>
           <footer className="page-footer"><span>POCKET <i>·</i> YOUR MONEY, YOUR WAY</span><span>Balances update as you log activity</span></footer>
         </div>
       </section>

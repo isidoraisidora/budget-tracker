@@ -119,6 +119,29 @@ h1 { margin-bottom: 0; color: #2b3931; font-family: Georgia, 'Times New Roman', 
 .account-summary-card .text-action { margin-top: 12px; }
 
 .section-block { min-width: 0; }
+.statistics-section { margin: 30px 0 0; padding: 19px; border: 1px solid #e8e9d8; border-radius: 8px; background: linear-gradient(120deg, rgba(246, 250, 232, .92), rgba(255, 255, 255, .9) 72%); }
+.statistics-heading { align-items: flex-start; margin-bottom: 12px; }
+.statistics-month-picker { display: grid; flex: 0 0 auto; gap: 5px; color: #89968d; font-size: 9px; font-weight: 600; letter-spacing: .5px; }
+.statistics-month-picker select { min-width: 150px; height: 34px; padding: 0 9px; border: 1px solid #e1e8d8; border-radius: 4px; background: #fff; color: #526357; font-size: 11px; letter-spacing: 0; }
+.statistics-summary { display: flex; gap: 28px; margin: 0 0 4px; }
+.statistics-summary div { display: grid; gap: 4px; }
+.statistics-summary span { color: #929e8c; font-size: 9px; }
+.statistics-summary strong { color: #405642; font-size: 16px; font-variant-numeric: tabular-nums; font-weight: 550; }
+.statistics-chart { width: 100%; }
+.statistics-chart svg { display: block; width: 100%; height: 250px; overflow: visible; }
+.statistics-grid-line { stroke: #e9eee2; stroke-width: 1; }
+.statistics-axis-label { fill: #98a392; font-family: var(--font-sans), sans-serif; font-size: 10px; }
+.statistics-bar { transition: filter .18s; }
+.statistics-bar:hover { filter: brightness(.86); }
+.statistics-bar.fill-food { fill: #82a98a; }
+.statistics-bar.fill-clothes { fill: #c1a77c; }
+.statistics-bar.fill-coffee { fill: #bd9070; }
+.statistics-bar.fill-travelling { fill: #829dbb; }
+.statistics-bar.fill-other { fill: #989db5; }
+.statistics-legend { display: flex; flex-wrap: wrap; gap: 11px 22px; margin-top: 6px; padding-top: 14px; border-top: 1px solid #e9eee2; }
+.statistics-legend-item { display: flex; align-items: center; gap: 7px; color: #76837a; font-size: 10px; }
+.statistics-legend-item strong { margin-left: 3px; color: #59665d; font-size: 10px; font-variant-numeric: tabular-nums; font-weight: 500; }
+.statistics-empty { margin: 0; color: #98a392; font-size: 10px; text-align: center; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 16px; }
 .section-heading h2 { margin-bottom: 4px; color: #35433a; font-size: 15px; font-weight: 570; letter-spacing: 0; }
 .section-heading p { margin-bottom: 0; color: #98a39c; font-size: 11px; }
@@ -273,6 +296,12 @@ h1 { margin-bottom: 0; color: #2b3931; font-family: Georgia, 'Times New Roman', 
   .account-balance { font-size: 19px; }
   .account-add-card { font-size: 10px; }
   .section-heading { margin-bottom: 13px; }
+  .statistics-section { margin-top: 27px; padding: 14px 12px 12px; }
+  .statistics-heading { align-items: flex-start; }
+  .statistics-month-picker { max-width: 46%; }
+  .statistics-month-picker select { min-width: 0; max-width: 100%; font-size: 10px; }
+  .statistics-chart svg { height: 210px; }
+  .statistics-summary { gap: 22px; }
   .lower-grid { gap: 25px; padding-top: 20px; }
   .page-footer { align-items: flex-start; margin-top: 24px; font-size: 8px; }
 }
