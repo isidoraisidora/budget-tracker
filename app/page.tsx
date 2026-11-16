@@ -26,6 +26,7 @@ type Transaction = {
   destinationAccountId?: string;
   goalId?: string;
   sourceLabel?: string;
+  comment?: string;
   accountNameSnapshot?: string;
   destinationAccountNameSnapshot?: string;
 };
@@ -60,9 +61,11 @@ export default function Home() {
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [authError, setAuthError] = useState("");
   const [modal, setModal] = useState<"transaction" | "account" | "goal" | "save" | null>(null);
+  const [activityDialogOpen, setActivityDialogOpen] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState("");
   const [transactionType, setTransactionType] = useState<"expense" | "deposit" | "withdrawal" | "payment">("expense");
   const [activeSection, setActiveSection] = useState<"overview" | "activity">("overview");
+  const [selectedActivityMonth, setSelectedActivityMonth] = useState("");
   const [selectedStatisticsMonth, setSelectedStatisticsMonth] = useState("");
   const [formError, setFormError] = useState("");
 
@@ -192,7 +195,51 @@ export default function Home() {
   const recentTransactions = [...transactions].sort((first, second) =>
     `${second.date}${second.id}`.localeCompare(`${first.date}${first.id}`),
   ).slice(0, 6);
+  const availableActivityMonths = Array.from(new Set([
+    month,
+    ...transactions
+      .filter((transaction) => /^\d{4}-\d{2}-\d{2}$/.test(transaction.date))
+      .map((transaction) => transaction.date.slice(0, 7)),
+  ])).filter(Boolean).sort((first, second) => second.localeCompare(first));
+  const activityMonth = selectedActivityMonth || month || availableActivityMonths[0] || "2000-01";
+  const activityMonthTransactions = [...transactions]
+    .filter((transaction) => transaction.date.startsWith(activityMonth))
+    .sort((first, second) => `${second.date}${second.id}`.localeCompare(`${first.date}${first.id}`));
   const accountName = (id: string, snapshot?: string) => accounts.find((account) => account.id === id)?.name ?? snapshot ?? "Account";
+
+  function renderActivityRows(activityItems: Transaction[]) {
+    return (
+      <div className="activity-list">
+        {activityItems.map((transaction) => {
+          const isWithdrawal = transaction.type === "withdrawal";
+          const isPayment = transaction.type === "payment";
+          const isSaving = transaction.type === "saving";
+          const isDeposit = transaction.type === "deposit";
+          const isCardTopUp = isPayment && !transaction.destinationAccountId;
+          const isTransfer = isWithdrawal || (isPayment && !isCardTopUp);
+          return (
+            <article className="activity-row" key={transaction.id}>
+              <span className={`activity-icon ${isTransfer ? "transfer-icon" : isSaving || isDeposit || isCardTopUp ? "saving-icon" : `category-${transaction.category?.toLowerCase() ?? "other"}`}`}>
+                {isTransfer ? "↗" : isSaving ? "✳" : isDeposit || isCardTopUp ? "+" : transaction.category?.slice(0, 1) ?? "O"}
+              </span>
+              <div className="activity-detail">
+                <strong>{isWithdrawal ? "Cash withdrawal" : isPayment ? "Credit card payment" : isDeposit ? "Money added" : isSaving ? `Saved: ${goals.find((goal) => goal.id === transaction.goalId)?.name ?? "Savings goal"}` : transaction.category}</strong>
+                <span>{isTransfer
+                  ? `${accountName(transaction.accountId, transaction.accountNameSnapshot)} to ${accountName(transaction.destinationAccountId ?? "", transaction.destinationAccountNameSnapshot)}`
+                  : isSaving && transaction.sourceLabel ? transaction.sourceLabel
+                  : `${accountName(transaction.accountId, transaction.accountNameSnapshot)} · ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${transaction.date}T12:00:00`))}`}</span>
+                {transaction.comment && <span className="activity-comment" title={transaction.comment}>{transaction.comment}</span>}
+              </div>
+              <div className="activity-amount">
+                <strong className={isTransfer ? "transfer-amount" : isSaving || isDeposit || isCardTopUp ? "saving-amount" : "expense-amount"}>{isSaving || isDeposit || isCardTopUp ? "+" : "−"}{money(transaction.amount)}</strong>
+                <span>{isTransfer ? "Transfer" : isSaving ? "Saved" : isDeposit || isCardTopUp ? "Added" : "Expense"}</span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
 
   function removeAccount(account: Account) {
     if (account.type !== "card" || !window.confirm(`Remove ${account.name} from your accounts? Its balance will no longer count toward your total. Past activity will be kept.`)) return;
@@ -308,6 +355,7 @@ export default function Home() {
     }
 
     const date = String(form.get("date") ?? today());
+    const comment = String(form.get("comment") ?? "").trim();
     if (modal === "save") {
       const sourceId = String(form.get("sourceId") ?? "");
       const goalId = String(form.get("goalId") ?? "");
@@ -330,6 +378,7 @@ export default function Home() {
       setTransactions((current) => [{
         id: crypto.randomUUID(), type: "saving", amount, date, accountId: source?.id ?? "", goalId,
         sourceLabel: source ? undefined : "Other source",
+        ...(comment ? { comment } : {}),
       }, ...current]);
       setModal(null);
       return;
@@ -344,7 +393,10 @@ export default function Home() {
       setAccounts((current) => current.map((account) =>
         account.id === accountId ? { ...account, balance: account.balance + amount } : account,
       ));
-      setTransactions((current) => [{ id: crypto.randomUUID(), type: "deposit", amount, date, accountId }, ...current]);
+      setTransactions((current) => [{
+        id: crypto.randomUUID(), type: "deposit", amount, date, accountId,
+        ...(comment ? { comment } : {}),
+      }, ...current]);
       setModal(null);
       return;
     }
@@ -363,6 +415,7 @@ export default function Home() {
       }));
       setTransactions((current) => [{
         id: crypto.randomUUID(), type: "withdrawal", amount, date, accountId, destinationAccountId,
+        ...(comment ? { comment } : {}),
       }, ...current]);
       setModal(null);
       return;
@@ -379,6 +432,7 @@ export default function Home() {
       ));
       setTransactions((current) => [{
         id: crypto.randomUUID(), type: "payment", amount, date, accountId,
+        ...(comment ? { comment } : {}),
       }, ...current]);
       setModal(null);
       return;
@@ -394,6 +448,7 @@ export default function Home() {
       ));
       setTransactions((current) => [{
         id: crypto.randomUUID(), type: "expense", amount, date, category, accountId,
+        ...(comment ? { comment } : {}),
       }, ...current]);
     }
     setModal(null);
@@ -577,38 +632,16 @@ export default function Home() {
           <div className="lower-grid">
             <section className="section-block activity-section" id="activity" aria-labelledby="activity-title">
               <div className="section-heading activity-heading">
-                <div><h2 id="activity-title">Recent activity</h2><p>Your latest money moves</p></div>
+                <div>
+                  <h2 id="activity-title">
+                    <button className="activity-heading-trigger" onClick={() => setActivityDialogOpen(true)} aria-haspopup="dialog" aria-controls="activity-modal">Recent activity</button>
+                  </h2>
+                  <p>Your latest money moves</p>
+                </div>
                 <button className="quiet-button" onClick={() => openModal("transaction")}><span>+</span> Add</button>
               </div>
               {recentTransactions.length > 0 ? (
-                <div className="activity-list">
-                  {recentTransactions.map((transaction) => {
-                    const isWithdrawal = transaction.type === "withdrawal";
-                    const isPayment = transaction.type === "payment";
-                    const isSaving = transaction.type === "saving";
-                    const isDeposit = transaction.type === "deposit";
-                    const isCardTopUp = isPayment && !transaction.destinationAccountId;
-                    const isTransfer = isWithdrawal || (isPayment && !isCardTopUp);
-                    return (
-                      <article className="activity-row" key={transaction.id}>
-                        <span className={`activity-icon ${isTransfer ? "transfer-icon" : isSaving || isDeposit || isCardTopUp ? "saving-icon" : `category-${transaction.category?.toLowerCase() ?? "other"}`}`}>
-                          {isTransfer ? "↗" : isSaving ? "✳" : isDeposit || isCardTopUp ? "+" : transaction.category?.slice(0, 1) ?? "O"}
-                        </span>
-                        <div className="activity-detail">
-                          <strong>{isWithdrawal ? "Cash withdrawal" : isPayment ? "Credit card payment" : isDeposit ? "Money added" : isSaving ? `Saved: ${goals.find((goal) => goal.id === transaction.goalId)?.name ?? "Savings goal"}` : transaction.category}</strong>
-                          <span>{isTransfer
-                            ? `${accountName(transaction.accountId, transaction.accountNameSnapshot)} to ${accountName(transaction.destinationAccountId ?? "", transaction.destinationAccountNameSnapshot)}`
-                            : isSaving && transaction.sourceLabel ? transaction.sourceLabel
-                            : `${accountName(transaction.accountId, transaction.accountNameSnapshot)} · ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${transaction.date}T12:00:00`))}`}</span>
-                        </div>
-                        <div className="activity-amount">
-                          <strong className={isTransfer ? "transfer-amount" : isSaving || isDeposit || isCardTopUp ? "saving-amount" : "expense-amount"}>{isSaving || isDeposit || isCardTopUp ? "+" : "−"}{money(transaction.amount)}</strong>
-                          <span>{isTransfer ? "Transfer" : isSaving ? "Saved" : isDeposit || isCardTopUp ? "Added" : "Expense"}</span>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
+                renderActivityRows(recentTransactions)
               ) : (
                 <div className="empty-activity">
                   <span className="empty-activity-icon">↗</span>
@@ -778,6 +811,7 @@ export default function Home() {
                   <label className="field-label">Amount <span className="input-wrap"><span>$</span><input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" autoFocus required /></span></label>
                   <label className="field-label">Add funds from<select name="sourceId" defaultValue={accounts[0]?.id ?? "other"} required>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type === "cash" ? "Cash" : "Credit card"} · {money(account.balance)}</option>)}<option value="other">Other source</option></select></label>
                   <label className="field-label">Date<input name="date" type="date" defaultValue={today()} required /></label>
+                  <label className="field-label">Comment (optional)<input name="comment" type="text" maxLength={200} placeholder="Add a note about this activity" /></label>
                 </>
               ) : (
                 <>
@@ -795,6 +829,7 @@ export default function Home() {
                   ) : (
                     <label className="field-label">Add to credit card<select key={`destination-${transactionType}`} name="destinationAccountId" defaultValue={cardAccounts[0]?.id ?? ""} required><option value="">Choose a credit card</option>{cardAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
                   )}
+                  <label className="field-label">Comment (optional)<input name="comment" type="text" maxLength={200} placeholder="Add a note about this activity" /></label>
                 </>
               )}
               {formError && <p className="form-error" role="alert">{formError}</p>}
@@ -805,6 +840,51 @@ export default function Home() {
             </form>
             {modal === "transaction" && (transactionType === "withdrawal" || transactionType === "payment") && (
               <p className="transfer-note">{transactionType === "payment" ? "The amount is added directly to the selected card; cash is unchanged." : cashAccounts[0] ? `The amount is added to ${cashAccounts[0].name} and deducted from the card balance.` : "Add a cash account to receive this transfer."}</p>
+            )}
+          </section>
+        </div>
+      )}
+
+      {activityDialogOpen && (
+        <div className="modal-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setActivityDialogOpen(false);
+        }}>
+          <section className="modal-panel activity-modal-panel" id="activity-modal" role="dialog" aria-modal="true" aria-labelledby="activity-modal-title">
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">YOUR MONEY, IN MOTION</p>
+                <h2 id="activity-modal-title">Spending activity</h2>
+              </div>
+              <button className="modal-close" onClick={() => setActivityDialogOpen(false)} aria-label="Close activity history">×</button>
+            </div>
+            <div className="activity-modal-toolbar">
+              <div className="activity-modal-summary">
+                <strong>{new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date(`${activityMonth}-01T12:00:00`))}</strong>
+                <span>{activityMonthTransactions.length} {activityMonthTransactions.length === 1 ? "activity" : "activities"}</span>
+              </div>
+              <label className="activity-modal-month-picker">
+                <span>Month</span>
+                <select
+                  aria-label="Filter activity by month"
+                  value={activityMonth}
+                  onChange={(event) => setSelectedActivityMonth(event.target.value)}
+                >
+                  {availableActivityMonths.map((availableMonth) => (
+                    <option value={availableMonth} key={availableMonth}>
+                      {new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date(`${availableMonth}-01T12:00:00`))}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {activityMonthTransactions.length > 0 ? (
+              renderActivityRows(activityMonthTransactions)
+            ) : (
+              <div className="empty-activity activity-modal-empty">
+                <span className="empty-activity-icon">↗</span>
+                <strong>No activity this month</strong>
+                <span>Your spending and other activities will show up here.</span>
+              </div>
             )}
           </section>
         </div>
