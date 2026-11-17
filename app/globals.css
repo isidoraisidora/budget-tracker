@@ -412,9 +412,12 @@ h1 { color: #294335; }
 .auth-submit span { font-size: 17px; }
 .auth-switch { margin: 17px 0 0; color: #818d80; font-size: 11px; text-align: center; }
 .auth-switch button { padding: 0; border: 0; background: none; color: #247451; font-size: inherit; font-weight: 600; }
+.auth-success { margin: 0; color: #247451; font-size: 11px; }
 .auth-local-note { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 24px 0 0; padding-top: 16px; border-top: 1px solid #eef0e7; color: #92998b; font-size: 10px; }
 .auth-local-note .privacy-dot { flex: 0 0 6px; }
 .auth-loading { color: #65765e; font-family: Georgia, serif; font-size: 18px; }
+.sync-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 54px; background: #fff1ed; color: #a44c3d; font-size: 12px; }
+.sync-error button { border: 0; background: transparent; color: #8b3c30; font-weight: 600; text-decoration: underline; }
 
 @media (max-width: 900px) {
   .goal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

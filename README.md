@@ -13,7 +13,11 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Run `npm run lint` and `npm run build` to check the project.
 
-## Data and sign-in
+## Supabase setup
 
-The single-user sign-in and budget data are stored in this browser on this device. There is no server-side account, cloud sync, or backup. Clearing browser storage removes the local account and budget data, so this is intended for personal tracking rather than sensitive financial records.
+The app uses Supabase Auth and a Postgres database. In your Supabase project, open **SQL Editor**, run [`supabase/schema.sql`](./supabase/schema.sql), then copy `.env.example` to `.env.local` and fill in the project URL and publishable key from **Project Settings → API** (the legacy anon key is also supported). Restart `npm run dev` after changing environment variables.
+
+Add the same two `NEXT_PUBLIC_` variables to your hosting provider's environment settings before deploying. These are browser-visible values; never use a Supabase `service_role` or secret key in this app. Row-level security in the schema limits each signed-in user to their own budget data.
+
+Existing browser-only accounts and budget data are not imported automatically; the new sign-in uses Supabase Auth with an email address.
 

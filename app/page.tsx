@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { getSupabaseClient } from "@/lib/supabase";
 
 type Account = {
   id: string;
@@ -32,34 +33,32 @@ type Transaction = {
 };
 
 const categories: Category[] = ["Food", "Clothes", "Coffee", "Travelling", "Other"];
-const storageKey = "pocket-ledger-data";
-const credentialKey = "pocket-ledger-credentials";
-const sessionKey = "pocket-ledger-session";
-const userStorageKey = (username: string) => `${storageKey}-${username}`;
 const today = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 const money = (amount: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
-const passwordHash = async (password: string, salt: Uint8Array) => {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: salt.buffer as ArrayBuffer, iterations: 120000 }, key, 256);
-  return Array.from(new Uint8Array(bits), (byte) => byte.toString(16).padStart(2, "0")).join("");
-};
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "Something went wrong. Please try again.";
 
 export default function Home() {
-  const [accounts, setAccounts] = useState<Account[]>([
-    { id: "cash", name: "Cash", type: "cash", balance: 0 },
-  ]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [activeUser, setActiveUser] = useState<string | null>(null);
-  const [hasCredential, setHasCredential] = useState(false);
+  const [activeEmail, setActiveEmail] = useState("");
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [authError, setAuthError] = useState("");
+  const [authSuccess, setAuthSuccess] = useState("");
+  const [dataError, setDataError] = useState("");
+  const [syncError, setSyncError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [saveAttempt, setSaveAttempt] = useState(0);
+  const saveQueue = useRef(Promise.resolve());
+  const activeUserRef = useRef<string | null>(null);
   const [modal, setModal] = useState<"transaction" | "account" | "goal" | "save" | null>(null);
   const [activityDialogOpen, setActivityDialogOpen] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState("");
@@ -70,54 +69,136 @@ export default function Home() {
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    let savedUsername: string | undefined;
-    let hasSavedCredential = false;
-    try {
-      const credential = window.localStorage.getItem(credentialKey);
-      if (credential) {
-        savedUsername = (JSON.parse(credential) as { username?: string }).username;
-        hasSavedCredential = Boolean(savedUsername);
-      }
-    } catch {
-      window.localStorage.removeItem(credentialKey);
-    }
-    queueMicrotask(() => {
-      setHasCredential(hasSavedCredential);
-      if (hasSavedCredential) setAuthMode("login");
-      if (savedUsername && window.localStorage.getItem(sessionKey) === savedUsername) setActiveUser(savedUsername);
+    activeUserRef.current = activeUser;
+  }, [activeUser]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let subscription: { unsubscribe: () => void } | undefined;
+    void Promise.resolve().then(() => {
+      if (!isMounted) return undefined;
+      const supabase = getSupabaseClient();
+      const authChange = supabase.auth.onAuthStateChange((_event, session) => {
+        setIsReady(false);
+        setActiveUser(session?.user.id ?? null);
+        setActiveEmail(session?.user.email ?? "");
+        setAuthReady(true);
+      });
+      subscription = authChange.data.subscription;
+      return supabase.auth.getSession();
+    }).then((result) => {
+      if (!result || !isMounted) return;
+      const { data, error } = result;
+      if (error) throw error;
+      setActiveUser(data.session?.user.id ?? null);
+      setActiveEmail(data.session?.user.email ?? "");
+      setAuthReady(true);
+    }).catch((error: unknown) => {
+      if (!isMounted) return;
+      setAuthError(errorMessage(error));
       setAuthReady(true);
     });
+
+    return () => {
+      isMounted = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     if (!authReady || !activeUser) return;
-    let savedAccounts: Account[] | undefined;
-    let savedTransactions: Transaction[] | undefined;
-    let savedGoals: Goal[] | undefined;
-    try {
-      const saved = window.localStorage.getItem(userStorageKey(activeUser)) ?? window.localStorage.getItem(storageKey);
-      if (saved) {
-        const data = JSON.parse(saved) as { accounts?: Account[]; transactions?: Transaction[]; goals?: Goal[] };
-        if (Array.isArray(data.accounts)) savedAccounts = data.accounts;
-        if (Array.isArray(data.transactions)) savedTransactions = data.transactions;
-        if (Array.isArray(data.goals)) savedGoals = data.goals;
+    let isMounted = true;
+
+    async function loadBudget() {
+      try {
+        const supabase = getSupabaseClient();
+        const [accountResult, goalResult, transactionResult] = await Promise.all([
+          supabase.from("accounts").select("*").order("created_at"),
+          supabase.from("goals").select("*").order("created_at"),
+          supabase.from("transactions").select("*").order("date", { ascending: false }),
+        ]);
+        if (accountResult.error) throw accountResult.error;
+        if (goalResult.error) throw goalResult.error;
+        if (transactionResult.error) throw transactionResult.error;
+
+        const savedAccounts: Account[] = accountResult.data.map((account) => ({
+          id: account.id,
+          name: account.name,
+          type: account.type,
+          balance: Number(account.balance),
+        }));
+        const savedGoals: Goal[] = goalResult.data.map((goal) => ({
+          id: goal.id,
+          name: goal.name,
+          target: Number(goal.target),
+          saved: Number(goal.saved),
+        }));
+        const savedTransactions: Transaction[] = transactionResult.data.map((transaction) => ({
+          id: transaction.id,
+          type: transaction.type,
+          amount: Number(transaction.amount),
+          date: transaction.date,
+          ...(transaction.category ? { category: transaction.category } : {}),
+          accountId: transaction.account_id ?? "",
+          ...(transaction.destination_account_id ? { destinationAccountId: transaction.destination_account_id } : {}),
+          ...(transaction.goal_id ? { goalId: transaction.goal_id } : {}),
+          ...(transaction.source_label ? { sourceLabel: transaction.source_label } : {}),
+          ...(transaction.comment ? { comment: transaction.comment } : {}),
+          ...(transaction.account_name_snapshot ? { accountNameSnapshot: transaction.account_name_snapshot } : {}),
+          ...(transaction.destination_account_name_snapshot
+            ? { destinationAccountNameSnapshot: transaction.destination_account_name_snapshot }
+            : {}),
+        }));
+
+        if (!isMounted) return;
+        setAccounts(savedAccounts.length ? savedAccounts : [
+          { id: crypto.randomUUID(), name: "Cash", type: "cash", balance: 0 },
+        ]);
+        setGoals(savedGoals);
+        setTransactions(savedTransactions);
+        setIsReady(true);
+      } catch (error) {
+        if (isMounted) setDataError(errorMessage(error));
       }
-    } catch {
-      window.localStorage.removeItem(userStorageKey(activeUser));
     }
-    queueMicrotask(() => {
-      setAccounts(savedAccounts ?? [{ id: "cash", name: "Cash", type: "cash", balance: 0 }]);
-      setTransactions(savedTransactions ?? []);
-      setGoals(savedGoals ?? []);
-      setIsReady(true);
-    });
-  }, [activeUser, authReady]);
+
+    void loadBudget();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeUser, authReady, loadAttempt]);
 
   useEffect(() => {
-    if (isReady && activeUser) {
-      window.localStorage.setItem(userStorageKey(activeUser), JSON.stringify({ accounts, transactions, goals }));
-    }
-  }, [accounts, transactions, goals, isReady, activeUser]);
+    if (!isReady || !activeUser) return;
+    const timeout = window.setTimeout(() => {
+      saveQueue.current = saveQueue.current.then(async () => {
+        if (activeUserRef.current !== activeUser) return;
+        const { error } = await getSupabaseClient().rpc("save_budget_state", {
+          p_accounts: accounts,
+          p_goals: goals,
+          p_transactions: transactions.map((transaction) => ({
+            id: transaction.id,
+            type: transaction.type,
+            amount: transaction.amount,
+            date: transaction.date,
+            category: transaction.category ?? null,
+            account_id: transaction.accountId || null,
+            destination_account_id: transaction.destinationAccountId ?? null,
+            goal_id: transaction.goalId ?? null,
+            source_label: transaction.sourceLabel ?? null,
+            comment: transaction.comment ?? null,
+            account_name_snapshot: transaction.accountNameSnapshot ?? null,
+            destination_account_name_snapshot: transaction.destinationAccountNameSnapshot ?? null,
+          })),
+        });
+        if (error) throw error;
+        setSyncError("");
+      }).catch((error: unknown) => {
+        setSyncError(errorMessage(error));
+      });
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [accounts, transactions, goals, isReady, activeUser, saveAttempt]);
 
   const currentDate = isReady ? today() : "";
   const month = currentDate.slice(0, 7);
@@ -263,50 +344,50 @@ export default function Home() {
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthError("");
+    setAuthSuccess("");
     const form = new FormData(event.currentTarget);
-    const username = String(form.get("username") ?? "").trim().toLowerCase();
+    const email = String(form.get("email") ?? "").trim().toLowerCase();
     const password = String(form.get("password") ?? "");
-    if (!username || password.length < 8) {
-      setAuthError("Use a username and a password with at least 8 characters.");
+    if (!email || password.length < 8) {
+      setAuthError("Enter a valid email address and a password with at least 8 characters.");
       return;
     }
+
     try {
-      const stored = window.localStorage.getItem(credentialKey);
+      const supabase = getSupabaseClient();
       if (authMode === "register") {
-        if (stored) {
-          setAuthError("An account already exists on this device. Please log in.");
-          return;
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.session && data.user) {
+          setIsReady(false);
+          setActiveUser(data.user.id);
+          setActiveEmail(data.user.email ?? email);
+        } else {
+          setAuthMode("login");
+          setAuthSuccess("Check your email to confirm your account, then log in.");
         }
-        const salt = crypto.getRandomValues(new Uint8Array(16));
-        const saltText = Array.from(salt, (byte) => byte.toString(16).padStart(2, "0")).join("");
-        const hash = await passwordHash(password, salt);
-        window.localStorage.setItem(credentialKey, JSON.stringify({ username, salt: saltText, hash }));
-        setHasCredential(true);
-        setAuthMode("login");
       } else {
-        if (!stored) {
-          setAuthError("No account exists yet. Register to get started.");
-          return;
-        }
-        const credential = JSON.parse(stored) as { username: string; salt: string; hash: string };
-        const salt = new Uint8Array(credential.salt.match(/.{2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? []);
-        if (username !== credential.username || await passwordHash(password, salt) !== credential.hash) {
-          setAuthError("That username and password do not match.");
-          return;
-        }
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        setIsReady(false);
+        setActiveUser(data.user.id);
+        setActiveEmail(data.user.email ?? email);
       }
-      window.localStorage.setItem(sessionKey, username);
-      setIsReady(false);
-      setActiveUser(username);
-    } catch {
-      setAuthError("Could not save your sign-in on this device. Check your browser storage settings.");
+    } catch (error) {
+      setAuthError(errorMessage(error));
     }
   }
 
-  function logOut() {
-    window.localStorage.removeItem(sessionKey);
-    setIsReady(false);
-    setActiveUser(null);
+  async function logOut() {
+    try {
+      const { error } = await getSupabaseClient().auth.signOut();
+      if (error) throw error;
+      setIsReady(false);
+      setActiveUser(null);
+      setActiveEmail("");
+    } catch (error) {
+      setSyncError(errorMessage(error));
+    }
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -475,17 +556,32 @@ export default function Home() {
           <h1>{authMode === "register" ? "Make money feel simple." : "Welcome back."}</h1>
           <p className="auth-copy">{authMode === "register" ? "Set up your personal pocket and start making plans." : "Your plans and balances are right where you left them."}</p>
           <form className="auth-form" onSubmit={handleAuthSubmit}>
-            <label className="field-label">Username<input name="username" autoComplete="username" placeholder="Your username" required /></label>
+            <label className="field-label">Email<input name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></label>
             <label className="field-label">Password<input name="password" type="password" autoComplete={authMode === "register" ? "new-password" : "current-password"} placeholder="At least 8 characters" minLength={8} required /></label>
             {authError && <p className="form-error" role="alert">{authError}</p>}
+            {authSuccess && <p className="auth-success" role="status">{authSuccess}</p>}
             <button type="submit" className="primary-button auth-submit">{authMode === "register" ? "Create my account" : "Log in"}<span>→</span></button>
           </form>
-          {!hasCredential && (
-            <p className="auth-switch">{authMode === "register" ? "Already have an account?" : "New around here?"}{" "}
-              <button onClick={() => { setAuthError(""); setAuthMode(authMode === "register" ? "login" : "register"); }}>{authMode === "register" ? "Log in" : "Create an account"}</button>
-            </p>
-          )}
-          <p className="auth-local-note"><span className="privacy-dot" />One-person account · stored on this device</p>
+          <p className="auth-switch">{authMode === "register" ? "Already have an account?" : "New around here?"}{" "}
+            <button onClick={() => { setAuthError(""); setAuthSuccess(""); setAuthMode(authMode === "register" ? "login" : "register"); }}>{authMode === "register" ? "Log in" : "Create an account"}</button>
+          </p>
+          <p className="auth-local-note"><span className="privacy-dot" />Your budget is securely synced to your Supabase database</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!isReady) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel">
+          {dataError
+            ? <>
+                <p className="form-error" role="alert">Could not load your budget: {dataError}</p>
+                <button className="primary-button" onClick={() => { setDataError(""); setLoadAttempt((attempt) => attempt + 1); }}>Retry</button>
+                <button className="cancel-button" onClick={logOut}>Log out</button>
+              </>
+            : <div className="auth-loading">Loading your budget...</div>}
         </section>
       </main>
     );
@@ -519,7 +615,7 @@ export default function Home() {
         <button className="sidebar-add" onClick={() => openModal("account")}><span>+</span> Add an account</button>
         <div className="sidebar-bottom">
           <span className="privacy-dot" />
-          <span>Signed in as <strong>{activeUser}</strong></span>
+          <span>Signed in as <strong>{activeEmail}</strong></span>
           <button className="logout-button" onClick={logOut}>Log out</button>
         </div>
       </aside>
@@ -529,9 +625,15 @@ export default function Home() {
           <div className="breadcrumb">Personal <span>/</span> Overview</div>
           <div className="topbar-right">
             <div className="topbar-date"><span className="date-indicator" />{dateLabel}</div>
-            <button className="topbar-logout" onClick={logOut} aria-label={`Log out ${activeUser}`}>Log out</button>
+            <button className="topbar-logout" onClick={logOut} aria-label={`Log out ${activeEmail}`}>Log out</button>
           </div>
         </header>
+        {syncError && (
+          <div className="sync-error" role="alert">
+            Could not save your latest changes: {syncError}
+            <button onClick={() => setSaveAttempt((attempt) => attempt + 1)}>Retry save</button>
+          </div>
+        )}
 
         <div className="dashboard-content">
           <div className="page-heading">
