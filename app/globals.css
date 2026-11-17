@@ -178,9 +178,9 @@ h1 { margin-bottom: 0; color: #2b3931; font-family: Georgia, 'Times New Roman', 
 
 .lower-grid { display: grid; grid-template-columns: minmax(0, 1.34fr) minmax(275px, .86fr); gap: 31px; padding-top: 24px; border-top: 1px solid var(--line); animation: appear .52s .12s ease-out both; }
 .activity-heading, .spending-heading { min-height: 34px; margin-bottom: 14px; }
-.activity-heading-trigger { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
-.activity-heading-trigger:hover h2 { color: var(--green-deep); }
-.activity-heading-trigger:focus-visible { border-radius: 3px; }
+.activity-all-link { padding: 0; border: 0; background: transparent; color: var(--green-deep); font-size: 11px; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
+.activity-all-link:hover { color: #286448; }
+.activity-all-link:focus-visible { border-radius: 3px; }
 .activity-list { border-top: 1px solid #eef1ee; }
 .activity-row { display: flex; align-items: center; gap: 11px; min-height: 56px; padding: 10px 0; border-bottom: 1px solid #eef1ee; }
 .activity-icon { display: grid; flex: 0 0 31px; width: 31px; height: 31px; place-items: center; border-radius: 8px; font-size: 12px; font-weight: 550; }

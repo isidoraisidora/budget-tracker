@@ -735,10 +735,8 @@ export default function Home() {
             <section className="section-block activity-section" id="activity" aria-labelledby="activity-title">
               <div className="section-heading activity-heading">
                 <div>
-                  <h2 id="activity-title">
-                    <button className="activity-heading-trigger" onClick={() => setActivityDialogOpen(true)} aria-haspopup="dialog" aria-controls="activity-modal">Recent activity</button>
-                  </h2>
-                  <p>Your latest money moves</p>
+                  <h2 id="activity-title">Recent activity</h2>
+                  <p><button className="activity-all-link" onClick={() => setActivityDialogOpen(true)} aria-haspopup="dialog" aria-controls="activity-modal">Click here to see all transactions</button></p>
                 </div>
                 <button className="quiet-button" onClick={() => openModal("transaction")}><span>+</span> Add</button>
               </div>
