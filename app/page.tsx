@@ -52,13 +52,13 @@ export default function Home() {
   const [authReady, setAuthReady] = useState(false);
   const [activeUser, setActiveUser] = useState<string | null>(null);
   const [activeEmail, setActiveEmail] = useState("");
-  const [accountCreatedDate, setAccountCreatedDate] = useState(today());
+  const [accountCreatedDate, setAccountCreatedDate] = useState("");
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
   const [dataError, setDataError] = useState("");
   const [syncError, setSyncError] = useState("");
-  const [localDay, setLocalDay] = useState(today);
+  const [localDay, setLocalDay] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saveAttempt, setSaveAttempt] = useState(0);
   const saveQueue = useRef(Promise.resolve());
@@ -73,6 +73,7 @@ export default function Home() {
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
+    if (!localDay) return;
     const now = new Date();
     const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     const timeout = window.setTimeout(() => setLocalDay(today()), nextMidnight.getTime() - now.getTime());
@@ -94,6 +95,7 @@ export default function Home() {
         setActiveUser(session?.user.id ?? null);
         setActiveEmail(session?.user.email ?? "");
         setAccountCreatedDate(session?.user.created_at ? localDateString(new Date(session.user.created_at)) : today());
+        setLocalDay(today());
         setAuthReady(true);
       });
       subscription = authChange.data.subscription;
@@ -105,6 +107,7 @@ export default function Home() {
       setActiveUser(data.session?.user.id ?? null);
       setActiveEmail(data.session?.user.email ?? "");
       setAccountCreatedDate(data.session?.user.created_at ? localDateString(new Date(data.session.user.created_at)) : today());
+      setLocalDay(today());
       setAuthReady(true);
     }).catch((error: unknown) => {
       if (!isMounted) return;
@@ -220,7 +223,9 @@ export default function Home() {
       ? transaction.date
       : latestDate,
   null);
-  const noSpendStreak = Math.max(0, daysBetween(lastExpenseDate ?? accountCreatedDate, currentDate || today()));
+  const noSpendStreak = currentDate
+    ? Math.max(0, daysBetween(lastExpenseDate ?? accountCreatedDate, currentDate))
+    : 0;
   const monthTransactions = transactions.filter(
     (transaction) => transaction.type === "expense" && transaction.date.startsWith(month),
   );
@@ -382,6 +387,7 @@ export default function Home() {
           setActiveUser(data.user.id);
           setActiveEmail(data.user.email ?? email);
           setAccountCreatedDate(localDateString(new Date(data.user.created_at)));
+          setLocalDay(today());
         } else {
           setAuthMode("login");
           setAuthSuccess("Check your email to confirm your account, then log in.");
@@ -393,6 +399,7 @@ export default function Home() {
         setActiveUser(data.user.id);
         setActiveEmail(data.user.email ?? email);
         setAccountCreatedDate(localDateString(new Date(data.user.created_at)));
+        setLocalDay(today());
       }
     } catch (error) {
       setAuthError(errorMessage(error));
@@ -406,7 +413,8 @@ export default function Home() {
       setIsReady(false);
       setActiveUser(null);
       setActiveEmail("");
-      setAccountCreatedDate(today());
+      setAccountCreatedDate("");
+      setLocalDay("");
     } catch (error) {
       setSyncError(errorMessage(error));
     }
@@ -944,13 +952,13 @@ export default function Home() {
                   <label className="field-label">Savings goal<select name="goalId" defaultValue={selectedGoalId} required>{goals.map((goal) => <option value={goal.id} key={goal.id} disabled={goal.saved >= goal.target}>{goal.name} · {money(goal.target - goal.saved)} left</option>)}</select></label>
                   <label className="field-label">Amount <span className="input-wrap"><span>$</span><input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" autoFocus required /></span></label>
                   <label className="field-label">Add funds from<select name="sourceId" defaultValue={accounts[0]?.id ?? "other"} required>{accounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type === "cash" ? "Cash" : "Credit card"} · {money(account.balance)}</option>)}<option value="other">Other source</option></select></label>
-                  <label className="field-label">Date<input name="date" type="date" defaultValue={today()} required /></label>
+                  <label className="field-label">Date<input name="date" type="date" defaultValue={currentDate} required /></label>
                   <label className="field-label">Comment (optional)<input name="comment" type="text" maxLength={200} placeholder="Add a note about this activity" /></label>
                 </>
               ) : (
                 <>
                   <label className="field-label">Amount <span className="input-wrap"><span>$</span><input name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" autoFocus required /></span></label>
-                  <label className="field-label">Date<input name="date" type="date" defaultValue={today()} required /></label>
+                  <label className="field-label">Date<input name="date" type="date" defaultValue={currentDate} required /></label>
                   {transactionType === "expense" ? (
                     <>
                       <label className="field-label">Category<select name="category" defaultValue="Food">{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
