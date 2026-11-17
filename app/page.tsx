@@ -33,10 +33,12 @@ type Transaction = {
 };
 
 const categories: Category[] = ["Food", "Clothes", "Coffee", "Travelling", "Other"];
-const today = () => {
-  const date = new Date();
+const localDateString = (date: Date) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
+const today = () => localDateString(new Date());
+const daysBetween = (start: string, end: string) =>
+  Math.floor((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
 const money = (amount: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 const errorMessage = (error: unknown) =>
@@ -50,11 +52,13 @@ export default function Home() {
   const [authReady, setAuthReady] = useState(false);
   const [activeUser, setActiveUser] = useState<string | null>(null);
   const [activeEmail, setActiveEmail] = useState("");
+  const [accountCreatedDate, setAccountCreatedDate] = useState(today());
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
   const [dataError, setDataError] = useState("");
   const [syncError, setSyncError] = useState("");
+  const [localDay, setLocalDay] = useState(today);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saveAttempt, setSaveAttempt] = useState(0);
   const saveQueue = useRef(Promise.resolve());
@@ -67,6 +71,13 @@ export default function Home() {
   const [selectedActivityMonth, setSelectedActivityMonth] = useState("");
   const [selectedStatisticsMonth, setSelectedStatisticsMonth] = useState("");
   const [formError, setFormError] = useState("");
+
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timeout = window.setTimeout(() => setLocalDay(today()), nextMidnight.getTime() - now.getTime());
+    return () => window.clearTimeout(timeout);
+  }, [localDay]);
 
   useEffect(() => {
     activeUserRef.current = activeUser;
@@ -82,6 +93,7 @@ export default function Home() {
         setIsReady(false);
         setActiveUser(session?.user.id ?? null);
         setActiveEmail(session?.user.email ?? "");
+        setAccountCreatedDate(session?.user.created_at ? localDateString(new Date(session.user.created_at)) : today());
         setAuthReady(true);
       });
       subscription = authChange.data.subscription;
@@ -92,6 +104,7 @@ export default function Home() {
       if (error) throw error;
       setActiveUser(data.session?.user.id ?? null);
       setActiveEmail(data.session?.user.email ?? "");
+      setAccountCreatedDate(data.session?.user.created_at ? localDateString(new Date(data.session.user.created_at)) : today());
       setAuthReady(true);
     }).catch((error: unknown) => {
       if (!isMounted) return;
@@ -200,8 +213,14 @@ export default function Home() {
     return () => window.clearTimeout(timeout);
   }, [accounts, transactions, goals, isReady, activeUser, saveAttempt]);
 
-  const currentDate = isReady ? today() : "";
+  const currentDate = isReady ? localDay : "";
   const month = currentDate.slice(0, 7);
+  const lastExpenseDate = transactions.reduce<string | null>((latestDate, transaction) =>
+    transaction.type === "expense" && (!latestDate || transaction.date > latestDate)
+      ? transaction.date
+      : latestDate,
+  null);
+  const noSpendStreak = Math.max(0, daysBetween(lastExpenseDate ?? accountCreatedDate, currentDate || today()));
   const monthTransactions = transactions.filter(
     (transaction) => transaction.type === "expense" && transaction.date.startsWith(month),
   );
@@ -362,6 +381,7 @@ export default function Home() {
           setIsReady(false);
           setActiveUser(data.user.id);
           setActiveEmail(data.user.email ?? email);
+          setAccountCreatedDate(localDateString(new Date(data.user.created_at)));
         } else {
           setAuthMode("login");
           setAuthSuccess("Check your email to confirm your account, then log in.");
@@ -372,6 +392,7 @@ export default function Home() {
         setIsReady(false);
         setActiveUser(data.user.id);
         setActiveEmail(data.user.email ?? email);
+        setAccountCreatedDate(localDateString(new Date(data.user.created_at)));
       }
     } catch (error) {
       setAuthError(errorMessage(error));
@@ -385,6 +406,7 @@ export default function Home() {
       setIsReady(false);
       setActiveUser(null);
       setActiveEmail("");
+      setAccountCreatedDate(today());
     } catch (error) {
       setSyncError(errorMessage(error));
     }
@@ -729,6 +751,18 @@ export default function Home() {
             ) : (
               <div className="empty-goals"><span className="empty-goal-spark">✳</span><span><strong>Dreaming of something?</strong><small>Create a goal and give your savings a destination.</small></span><button className="text-action" onClick={() => openModal("goal")}>Make a goal <span>→</span></button></div>
             )}
+          </section>
+
+          <section className="no-spend-section" aria-labelledby="no-spend-title">
+            <div className="no-spend-copy">
+              <p className="eyebrow">A LITTLE PROGRESS, EVERY DAY</p>
+              <h2 id="no-spend-title">No-spend streak</h2>
+              <p>Only expenses reset your streak. Deposits, transfers, card payments, and savings are okay.</p>
+            </div>
+            <div className="no-spend-count" aria-label={`${noSpendStreak} days without spending`}>
+              <strong>{noSpendStreak}</strong>
+              <span>{noSpendStreak === 1 ? "day" : "days"}</span>
+            </div>
           </section>
 
           <div className="lower-grid">
