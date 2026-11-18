@@ -226,6 +226,19 @@ export default function Home() {
   const noSpendStreak = currentDate
     ? Math.max(0, daysBetween(lastExpenseDate ?? accountCreatedDate, currentDate))
     : 0;
+  const expenseDates = Array.from(new Set(
+    transactions
+      .filter((transaction) => transaction.type === "expense" && /^\d{4}-\d{2}-\d{2}$/.test(transaction.date))
+      .map((transaction) => transaction.date),
+  )).sort();
+  let longestNoSpendStreak = noSpendStreak;
+  let previousExpenseDate = accountCreatedDate;
+  for (const expenseDate of expenseDates) {
+    if (previousExpenseDate && expenseDate <= currentDate) {
+      longestNoSpendStreak = Math.max(longestNoSpendStreak, daysBetween(previousExpenseDate, expenseDate));
+    }
+    previousExpenseDate = expenseDate;
+  }
   const monthTransactions = transactions.filter(
     (transaction) => transaction.type === "expense" && transaction.date.startsWith(month),
   );
@@ -766,6 +779,7 @@ export default function Home() {
               <p className="eyebrow">A LITTLE PROGRESS, EVERY DAY</p>
               <h2 id="no-spend-title">No-spend streak</h2>
               <p>Only expenses reset your streak. Deposits, transfers, card payments, and savings are okay.</p>
+              <p className="longest-streak">Longest streak so far: <strong>{longestNoSpendStreak}</strong> {longestNoSpendStreak === 1 ? "day" : "days"}</p>
             </div>
             <div className="no-spend-count" aria-label={`${noSpendStreak} days without spending`}>
               <strong>{noSpendStreak}</strong>
